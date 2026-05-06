@@ -1,0 +1,27 @@
+# 로컬 오버라이드 (커밋 금지)
+local.ps1
+local/
+
+# Claude Code 워크스페이스 자동 생성물 (개인용)
+.claude/HANDOFF.md
+.claude/work-log/
+.claude/*.local.json
+
+# 백업 / 임시
+*.bak
+*.bak.*
+*.tmp
+
+# OS / 에디터
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 민감 파일 가드 (실수 방지)
+*.env
+.env*
+*credentials*
+*secret*
+*token*
+*api_key*
