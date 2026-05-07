@@ -6,9 +6,11 @@
 # 의도: Claude 가 그 턴에 "수행한 작업" 을 기록한다 (대화 Q/A 가 아니라 행위/변경).
 #
 # 동작:
-#  1. transcript 의 마지막 assistant turn 에서 <!--worklog: action=... | files=... | notes=...--> 추출
-#  2. 메타블록 누락 시 fallback: 도구 호출에서 변경 파일 자동 추출, action 은 "(누락)" 표기
-#  3. <cwd>/.claude/work-log/YYYY-MM-DD.md 에 append
+#  1. transcript 의 최근 assistant turn 들을 모두 모음
+#     (Claude Code 는 한 응답을 여러 turn 으로 split — 각 turn 이 하나의 content block)
+#  2. 모든 텍스트 합쳐서 가장 마지막 worklog 메타블록 추출
+#  3. 메타블록 없으면 도구 호출에서 변경 파일 자동 추출 (fallback)
+#  4. <cwd>/.claude/work-log/YYYY-MM-DD.md 에 append
 #
 # 실패해도 Claude 동작에 영향이 없도록 모든 예외는 삼킨다 (exit 0).
 
@@ -28,42 +30,41 @@ try {
 
     if (-not $transcript -or -not (Test-Path $transcript)) { exit 0 }
 
-    $lines = Get-Content -LiteralPath $transcript -Tail 200 -ErrorAction SilentlyContinue
+    # 최근 800 줄 (한 응답에 도구 호출이 많아도 여유)
+    $lines = Get-Content -LiteralPath $transcript -Tail 800 -Encoding UTF8 -ErrorAction SilentlyContinue
     if (-not $lines) { exit 0 }
 
-    $msgs = New-Object System.Collections.ArrayList
+    # 모든 assistant turn 의 text 합치기 + tool_use 의 변경 파일 수집
+    $allText     = New-Object System.Text.StringBuilder
+    $editedFiles = New-Object System.Collections.ArrayList
     foreach ($l in $lines) {
         if ([string]::IsNullOrWhiteSpace($l)) { continue }
-        try { [void]$msgs.Add(($l | ConvertFrom-Json)) } catch {}
-    }
-
-    # 마지막 assistant 추출 (user 는 사용 안 함 — 의도상 행위만 기록)
-    $lastAssistant = $null
-    for ($i = $msgs.Count - 1; $i -ge 0; $i--) {
-        if ($msgs[$i].type -eq 'assistant') { $lastAssistant = $msgs[$i]; break }
-    }
-    if (-not $lastAssistant) { exit 0 }
-
-    function Get-Text($m) {
-        if ($null -eq $m) { return '' }
-        if ($m.message -and $m.message.content) {
-            $parts = @()
+        try {
+            $m = $l | ConvertFrom-Json
+            if ($m.type -ne 'assistant') { continue }
+            if (-not $m.message -or -not $m.message.content) { continue }
             foreach ($c in $m.message.content) {
-                if ($c.type -eq 'text' -and $c.text) { $parts += $c.text }
+                if ($c.type -eq 'text' -and $c.text) {
+                    [void]$allText.AppendLine($c.text)
+                }
+                elseif ($c.type -eq 'tool_use' -and $c.name -in @('Write','Edit','MultiEdit','NotebookEdit')) {
+                    if ($c.input -and $c.input.file_path) {
+                        $marker = if ($c.name -eq 'Write') { '+' } else { 'M' }
+                        [void]$editedFiles.Add("$marker  $($c.input.file_path)")
+                    }
+                }
             }
-            return ($parts -join "`n")
-        }
-        return ''
+        } catch {}
     }
 
-    $assistantText = Get-Text $lastAssistant
+    $assistantText = $allText.ToString()
 
-    # 메타블록 추출
+    # 가장 마지막 worklog 메타블록 찾기 (현재 응답에서 박은 것)
     $Action = $null; $Files = $null; $Notes = $null
-    $pat = '<!--\s*worklog:\s*(.+?)\s*-->'
-    $mm  = [regex]::Match($assistantText, $pat, [System.Text.RegularExpressions.RegexOptions]::Singleline)
-    if ($mm.Success) {
-        $body = $mm.Groups[1].Value
+    $rx     = [regex]'<!--\s*worklog:\s*(.+?)\s*-->'
+    $hits   = $rx.Matches($assistantText)
+    if ($hits.Count -gt 0) {
+        $body = $hits[$hits.Count - 1].Groups[1].Value
         foreach ($kv in $body -split '\|') {
             $kv = $kv.Trim()
             if ($kv -match '^(?i)action\s*=\s*(.+)$') { $Action = $matches[1].Trim() }
@@ -72,34 +73,22 @@ try {
         }
     }
 
-    # files 가 비었으면 도구 호출에서 자동 추출
-    if (-not $Files) {
-        $editedFiles = New-Object System.Collections.ArrayList
-        if ($lastAssistant.message -and $lastAssistant.message.content) {
-            foreach ($c in $lastAssistant.message.content) {
-                if ($c.type -eq 'tool_use' -and $c.name -in @('Write','Edit','MultiEdit','NotebookEdit')) {
-                    if ($c.input -and $c.input.file_path) {
-                        $marker = if ($c.name -eq 'Write') { '+' } else { 'M' }
-                        [void]$editedFiles.Add("$marker  $($c.input.file_path)")
-                    }
-                }
-            }
-        }
-        if ($editedFiles.Count -gt 0) {
-            $Files = ($editedFiles -join ', ')
-        }
+    # files=- 는 명시적 "변경 없음" — fallback 안 함
+    $explicitNoFiles = ($Files -eq '-')
+    if ($explicitNoFiles) { $Files = $null }
+
+    # files 가 비었고 explicit "-" 도 아니면 도구 호출에서 자동 추출 (마지막 30개만)
+    if (-not $Files -and -not $explicitNoFiles -and $editedFiles.Count -gt 0) {
+        $tail = $editedFiles | Select-Object -Last 30
+        $Files = ($tail) -join ', '
     }
+
+    # action 도 메타블록도 없고 변경 파일도 없으면 skip
+    if (-not $Action -and -not $Files) { exit 0 }
 
     if (-not $Action) {
-        if ($Files) {
-            $Action = "(action 누락) — 자동 추출 파일 $((($Files -split ',') | Measure-Object).Count)개"
-        } else {
-            $Action = '(action 누락 + 변경 파일 없음)'
-        }
+        $Action = "(action 누락) — 자동 추출 파일 $((($Files -split ',') | Measure-Object).Count)개"
     }
-
-    # 변경이 전혀 없는 turn 은 기록하지 않음 (탐색/조회만 한 응답)
-    if (-not $Files -and $Action -like '(action 누락*') { exit 0 }
 
     # 민감 정보 redact
     $badPats = @(
@@ -116,7 +105,7 @@ try {
     }
 
     # 파일 append
-    $logDir  = Join-Path $cwd '.claude\work-log'
+    $logDir = Join-Path $cwd '.claude\work-log'
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
     $logFile = Join-Path $logDir ("$(Get-Date -Format 'yyyy-MM-dd').md")
     $ts      = Get-Date -Format 'HH:mm'
@@ -124,16 +113,14 @@ try {
     $out = New-Object System.Collections.ArrayList
     [void]$out.Add("## $ts")
     [void]$out.Add("- 작업: $Action")
-    if ($Files -and $Files -ne '-') {
+    if ($Files) {
         [void]$out.Add('- 변경:')
         foreach ($f in ($Files -split ',')) {
             $f = $f.Trim()
             if ($f) { [void]$out.Add("  - $f") }
         }
     }
-    if ($Notes) {
-        [void]$out.Add("- 비고: $Notes")
-    }
+    if ($Notes) { [void]$out.Add("- 비고: $Notes") }
     [void]$out.Add('')
 
     Add-Content -LiteralPath $logFile -Value ($out -join "`n") -Encoding utf8
