@@ -14,6 +14,10 @@
 
 $ErrorActionPreference = 'Continue'
 
+# UTF-8 명시 (work-log 파일의 한글 정상 기록 보장)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding           = [System.Text.UTF8Encoding]::new($false)
+
 try {
     $raw = [Console]::In.ReadToEnd()
     if (-not $raw) { exit 0 }

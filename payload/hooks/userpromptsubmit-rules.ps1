@@ -6,6 +6,10 @@
 
 $ErrorActionPreference = 'Continue'
 
+# Claude Code 가 stdout 을 UTF-8 로 받을 수 있도록 명시 (한국어 Windows 의 CP949 mojibake 회피)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding           = [System.Text.UTF8Encoding]::new($false)
+
 try {
     [void][Console]::In.ReadToEnd()  # stdin 비움 (사용 안 함)
 

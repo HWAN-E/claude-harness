@@ -10,6 +10,10 @@
 
 $ErrorActionPreference = 'Continue'
 
+# UTF-8 명시 (한국어 Windows mojibake 회피)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding           = [System.Text.UTF8Encoding]::new($false)
+
 try {
     [void][Console]::In.ReadToEnd()
 

@@ -9,6 +9,10 @@
 
 $ErrorActionPreference = 'Continue'
 
+# UTF-8 명시 (stderr 의 한국어 메시지 mojibake 회피)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding           = [System.Text.UTF8Encoding]::new($false)
+
 try {
     $raw = [Console]::In.ReadToEnd()
     if (-not $raw) { exit 0 }
