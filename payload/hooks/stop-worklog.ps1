@@ -1,4 +1,4 @@
-# Stop hook — work-log 자동 기록
+﻿# Stop hook — work-log 자동 기록
 #
 # Claude Code 가 응답 한 턴을 마칠 때 호출된다.
 # stdin: { session_id, transcript_path, cwd, stop_hook_active, ... }

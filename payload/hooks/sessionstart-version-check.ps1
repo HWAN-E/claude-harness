@@ -1,4 +1,4 @@
-# SessionStart hook — claude-harness 업데이트 알림
+﻿# SessionStart hook — claude-harness 업데이트 알림
 #
 # 새 세션 시작 시 발화. GitHub raw URL 에서 main 브랜치의 version.txt 를 가져와
 # 로컬 ~/.claude/.harness-version 과 비교. 새 버전 있으면 stdout 으로 알림.

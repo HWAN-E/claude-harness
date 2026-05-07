@@ -133,7 +133,10 @@ function Merge-Json {
     }
     if ($Patch -is [System.Collections.IEnumerable] -and $Patch -isnot [string]) {
         if ($Base -is [System.Collections.IEnumerable] -and $Base -isnot [string]) {
-            return @(@($Base) + @($Patch) | Select-Object -Unique)
+            # 단순 concat — Select-Object -Unique 는 PSCustomObject 두 개를
+            # type-name 기반으로 같다고 판단해 dedup 시키는 이슈가 있음.
+            # 멱등성은 Remove-OurHooks 가 책임지므로 안전.
+            return @(@($Base) + @($Patch))
         }
         return $Patch
     }

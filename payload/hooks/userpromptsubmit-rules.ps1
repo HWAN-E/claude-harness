@@ -1,4 +1,4 @@
-# UserPromptSubmit hook — 핵심 규칙 재주입
+﻿# UserPromptSubmit hook — 핵심 규칙 재주입
 #
 # 사용자 메시지가 제출될 때마다 발화.
 # stdout 출력은 Claude 의 컨텍스트에 추가 컨텍스트로 주입된다 (사용자에게는 안 보임).

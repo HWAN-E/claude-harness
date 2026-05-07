@@ -1,4 +1,4 @@
-# PreToolUse hook — 위험 명령 가드
+﻿# PreToolUse hook — 위험 명령 가드
 #
 # Bash / PowerShell 도구 호출 직전에 명령어를 검사.
 # 위험 패턴이면 stderr 로 안내 + exit 2 (Claude Code 가 차단으로 해석)
