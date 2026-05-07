@@ -4,7 +4,6 @@
 # - CLAUDE.md                          : 덮어씀 (백업 후)
 # - settings.partial.json              : settings.json 에 머지 (배열은 union, 객체는 deep merge)
 
-[CmdletBinding()]
 param(
     [string]$ClaudeHome = (Join-Path $env:USERPROFILE '.claude'),
     [switch]$DryRun
@@ -16,7 +15,14 @@ $Payload  = Join-Path $RepoRoot 'payload'
 
 function Write-Step($msg) { Write-Host "[install] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "[install] $msg" -ForegroundColor Green }
-function Write-Warn2($msg){ Write-Host "[install] $msg" -ForegroundColor Yellow }
+
+# 파일 read — UTF-8 명시 (default codepage 가 비-UTF8 인 한국어 Windows 등에서
+# BOM 없는 UTF-8 파일을 빈 결과로 읽는 이슈 회피)
+$ReadFile = {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return $null }
+    return [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
+}.GetNewClosure()
 
 if (-not (Test-Path $Payload)) { throw "payload not found at $Payload" }
 if (-not (Test-Path $ClaudeHome)) {
@@ -134,31 +140,101 @@ function Merge-Json {
     return $Patch
 }
 
-$partial = Join-Path $Payload 'settings.partial.json'
-if (Test-Path $partial) {
-    Write-Step 'merge settings.partial.json -> ~/.claude/settings.json'
-    $existingPath = Join-Path $ClaudeHome 'settings.json'
-    $existing = if (Test-Path $existingPath) {
-        Get-Content $existingPath -Raw | ConvertFrom-Json
-    } else { New-Object psobject }
+# === settings.partial.json — INLINE ===
+# 외부 read 가 일부 환경에서 비결정적으로 빈 결과를 반환하는 이슈가 있어 inline 으로 박아둠.
+# payload/settings.partial.json 과 이 블록은 손으로 동기화 한다 (or sync-inline.ps1 사용).
+$PartialJsonText = @'
+{
+  "language": "korean",
+  "theme": "auto",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{USERPROFILE}}/.claude/hooks/sessionstart-version-check.ps1"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{USERPROFILE}}/.claude/hooks/stop-worklog.ps1"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{USERPROFILE}}/.claude/hooks/pretooluse-guard.ps1"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{USERPROFILE}}/.claude/hooks/userpromptsubmit-rules.ps1"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git show:*)",
+      "Bash(git stash list:*)",
+      "Bash(ls:*)",
+      "Bash(pwd)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)"
+    ]
+  }
+}
+'@
 
-    # placeholder 치환 — {{USERPROFILE}} 를 사용자별 홈 경로 (forward slash) 로
-    $partialText  = Get-Content $partial -Raw
-    $userHomeFwd  = $env:USERPROFILE.Replace('\','/')
-    $partialText  = $partialText.Replace('{{USERPROFILE}}', $userHomeFwd)
+Write-Step 'merge settings (inline) -> ~/.claude/settings.json'
+$existingPath = Join-Path $ClaudeHome 'settings.json'
+$existing = if (Test-Path $existingPath) {
+    $et = & $ReadFile $existingPath
+    if ([string]::IsNullOrEmpty($et)) {
+        Write-Warn2 'existing settings.json read returned empty — using empty object (data loss risk if file was non-empty)'
+        New-Object psobject
+    } else { $et | ConvertFrom-Json }
+} else { New-Object psobject }
 
-    $patch    = $partialText | ConvertFrom-Json
-    $existing = Remove-OurHooks $existing   # 멱등성 — 우리 hook 중복 등록 방지
-    $merged   = Merge-Json $existing $patch
-    if (-not $DryRun) {
-        $merged | ConvertTo-Json -Depth 30 | Out-File $existingPath -Encoding utf8
-    }
+$userHome = $env:USERPROFILE
+if (-not $userHome) { $userHome = [Environment]::GetFolderPath('UserProfile') }
+if (-not $userHome) { throw 'cannot resolve user home directory (USERPROFILE/UserProfile both empty)' }
+$userHomeFwd     = $userHome.Replace('\','/')
+$PartialJsonText = $PartialJsonText.Replace('{{USERPROFILE}}', $userHomeFwd)
+
+$patch    = $PartialJsonText | ConvertFrom-Json
+$existing = Remove-OurHooks $existing   # 멱등성 — 우리 hook 중복 등록 방지
+$merged   = Merge-Json $existing $patch
+if (-not $DryRun) {
+    $merged | ConvertTo-Json -Depth 30 | Out-File $existingPath -Encoding utf8
 }
 
 # === 버전 기록 ===
 $verSrc = Join-Path $RepoRoot 'version.txt'
 if (Test-Path $verSrc) {
-    $ver = (Get-Content $verSrc -Raw).Trim()
+    $ver = (& $ReadFile $verSrc).Trim()
     Write-Step "stamp version $ver -> ~/.claude/.harness-version"
     if (-not $DryRun) { Set-Content (Join-Path $ClaudeHome '.harness-version') $ver -Encoding utf8 }
 }
