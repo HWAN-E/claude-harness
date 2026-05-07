@@ -133,10 +133,26 @@ function Merge-Json {
     }
     if ($Patch -is [System.Collections.IEnumerable] -and $Patch -isnot [string]) {
         if ($Base -is [System.Collections.IEnumerable] -and $Base -isnot [string]) {
-            # 단순 concat — Select-Object -Unique 는 PSCustomObject 두 개를
-            # type-name 기반으로 같다고 판단해 dedup 시키는 이슈가 있음.
-            # 멱등성은 Remove-OurHooks 가 책임지므로 안전.
-            return @(@($Base) + @($Patch))
+            # Hash dedup — string/숫자는 그대로, 객체는 JSON 직렬화 fingerprint 로 비교.
+            # PowerShell 의 Select-Object -Unique 가 PSCustomObject 를 type-name 으로
+            # 잘못 dedup 하는 문제와, 단순 concat 으로 인한 string 중복 누적을 동시 해결.
+            $combined = @(@($Base) + @($Patch))
+            $seen   = @{}
+            $result = New-Object System.Collections.ArrayList
+            foreach ($item in $combined) {
+                $key = if ($null -eq $item) {
+                    '__null__'
+                } elseif ($item -is [string] -or $item -is [bool] -or $item -is [int] -or $item -is [long] -or $item -is [double] -or $item -is [decimal]) {
+                    "$($item.GetType().Name)::$item"
+                } else {
+                    'json::' + ($item | ConvertTo-Json -Depth 30 -Compress)
+                }
+                if (-not $seen.ContainsKey($key)) {
+                    $seen[$key] = $true
+                    [void]$result.Add($item)
+                }
+            }
+            return @($result)
         }
         return $Patch
     }
