@@ -1,0 +1,31 @@
+# 텍스트/바이너리 자동 인식
+* text=auto
+
+# Windows 라인엔딩 강제 — PowerShell 은 CRLF 가 안전
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.psd1  text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+
+# Unix 라인엔딩 강제
+*.sh    text eol=lf
+
+# 일반 텍스트 — 자동 처리
+*.md    text
+*.json  text
+*.yml   text
+*.yaml  text
+*.txt   text
+*.toml  text
+*.ini   text
+
+# 바이너리 — 변환 금지
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.zip   binary
+*.exe   binary
+*.dll   binary

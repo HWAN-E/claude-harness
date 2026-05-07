@@ -2,6 +2,16 @@
   "language": "korean",
   "theme": "auto",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{USERPROFILE}}/.claude/hooks/sessionstart-version-check.ps1"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

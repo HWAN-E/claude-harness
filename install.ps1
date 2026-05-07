@@ -68,6 +68,45 @@ if (Test-Path $claudeMdSrc) {
 }
 
 # === settings.partial.json 머지 ===
+
+# 우리가 등록할 hook 들을 식별자(스크립트 파일명)로 미리 제거 — 멱등성 보장
+# install 을 여러 번 돌려도 같은 hook 이 settings.json 의 hooks 배열에 중복 추가되지 않도록.
+function Remove-OurHooks {
+    param($Settings)
+    if (-not $Settings -or -not $Settings.hooks) { return $Settings }
+    $ourMarkers = @(
+        'sessionstart-version-check.ps1',
+        'stop-worklog.ps1',
+        'pretooluse-guard.ps1',
+        'userpromptsubmit-rules.ps1'
+    )
+    $eventNames = @($Settings.hooks.PSObject.Properties.Name)
+    foreach ($evtName in $eventNames) {
+        $arr    = @($Settings.hooks.$evtName)
+        $newArr = @()
+        foreach ($entry in $arr) {
+            $hasOurs = $false
+            if ($entry -and $entry.hooks) {
+                foreach ($h in $entry.hooks) {
+                    if ($h -and $h.command) {
+                        foreach ($m in $ourMarkers) {
+                            if ($h.command -like "*$m*") { $hasOurs = $true; break }
+                        }
+                    }
+                    if ($hasOurs) { break }
+                }
+            }
+            if (-not $hasOurs) { $newArr += $entry }
+        }
+        if ($newArr.Count -gt 0) {
+            $Settings.hooks.$evtName = $newArr
+        } else {
+            $Settings.hooks.PSObject.Properties.Remove($evtName)
+        }
+    }
+    return $Settings
+}
+
 function Merge-Json {
     param($Base, $Patch)
     if ($null -eq $Base)  { return $Patch }
@@ -108,8 +147,9 @@ if (Test-Path $partial) {
     $userHomeFwd  = $env:USERPROFILE.Replace('\','/')
     $partialText  = $partialText.Replace('{{USERPROFILE}}', $userHomeFwd)
 
-    $patch  = $partialText | ConvertFrom-Json
-    $merged = Merge-Json $existing $patch
+    $patch    = $partialText | ConvertFrom-Json
+    $existing = Remove-OurHooks $existing   # 멱등성 — 우리 hook 중복 등록 방지
+    $merged   = Merge-Json $existing $patch
     if (-not $DryRun) {
         $merged | ConvertTo-Json -Depth 30 | Out-File $existingPath -Encoding utf8
     }
@@ -122,6 +162,10 @@ if (Test-Path $verSrc) {
     Write-Step "stamp version $ver -> ~/.claude/.harness-version"
     if (-not $DryRun) { Set-Content (Join-Path $ClaudeHome '.harness-version') $ver -Encoding utf8 }
 }
+
+# === harness repo 경로 기록 (SessionStart hook 이 update.cmd 안내에 사용) ===
+Write-Step "stamp repo path -> ~/.claude/.harness-repo"
+if (-not $DryRun) { Set-Content (Join-Path $ClaudeHome '.harness-repo') $RepoRoot -Encoding utf8 }
 
 Write-Ok 'install complete.'
 if (-not $DryRun) { Write-Ok "backup: $BackupDir" }
