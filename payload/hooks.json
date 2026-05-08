@@ -1,0 +1,6 @@
+{
+  "response-complete": {
+    "command": "powershell -Command \"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; $Template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); $RawXml = [xml] $Template.GetXml(); $RawXml.toast.visual.binding.text[0].InnerText = 'Claude Code'; $RawXml.toast.visual.binding.text[1].InnerText = '작업이 완료되었습니다!'; $SerializedXml = New-Object Windows.Data.Xml.Dom.XmlDocument; $SerializedXml.LoadXml($RawXml.OuterXml); $Toast = [Windows.UI.Notifications.ToastNotification]::new($SerializedXml); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Claude Code').Show($Toast);\"",
+    "description": "Windows 토스트 알림"
+  }
+}

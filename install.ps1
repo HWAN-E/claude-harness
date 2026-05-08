@@ -73,6 +73,16 @@ if (Test-Path $claudeMdSrc) {
     if (-not $DryRun) { Copy-Item $claudeMdSrc (Join-Path $ClaudeHome 'CLAUDE.md') -Force }
 }
 
+# === ~/.claude/ 직속 파일 (statusline, hooks.json 등) ===
+$rootFiles = @('statusline-command.sh', 'hooks.json')
+foreach ($rf in $rootFiles) {
+    $src = Join-Path $Payload $rf
+    if (Test-Path $src) {
+        Write-Step "copy payload/$rf -> ~/.claude/$rf"
+        if (-not $DryRun) { Copy-Item $src (Join-Path $ClaudeHome $rf) -Force }
+    }
+}
+
 # === settings.partial.json 머지 ===
 
 # 우리가 등록할 hook 들을 식별자(스크립트 파일명)로 미리 제거 — 멱등성 보장
