@@ -4,8 +4,11 @@ local/
 
 # Claude Code 워크스페이스 자동 생성물 (개인용)
 .claude/HANDOFF.md
+.claude/HANDOFF/
+.claude/HANDOFF.archive/
 .claude/work-log/
 .claude/*.local.json
+.claude/settings.json
 
 # 백업 / 임시
 *.bak

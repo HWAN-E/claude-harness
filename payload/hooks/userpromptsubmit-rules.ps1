@@ -1,4 +1,4 @@
-﻿# UserPromptSubmit hook — 핵심 규칙 재주입
+# UserPromptSubmit hook — 핵심 규칙 재주입
 #
 # 사용자 메시지가 제출될 때마다 발화.
 # stdout 출력은 Claude 의 컨텍스트에 추가 컨텍스트로 주입된다 (사용자에게는 안 보임).
@@ -20,9 +20,7 @@ try {
 - 위험 작업(삭제, commit/push/rebase/reset/force, DB drop·truncate, 외부 API 호출, 결제, 배포) 사전 [확인] 양식 필수:
     [확인] 작업: <무엇> / 영향: <어디까지> / 롤백: <어떻게> — 진행할까요?
 - 사용자 컨펌 없이 자동 git commit / push / rebase / reset --hard / 파일 강제삭제 금지.
-- 응답 끝에 다음 한 줄을 반드시 포함 (대화가 아니라 "수행한 작업"을 기록):
-    <!--worklog: action=<수행한 작업 한 줄> | files=<+/M/- path 콤마구분 또는 -> | notes=<선택, 의사결정·왜>-->
-  변경이 전혀 없는 응답(조회·답변만)이라도 메타블록 자체는 박되 files=- 로 둔다 (hook 이 알아서 무시).
+- work-log 는 Stop hook 이 transcript 에서 자동 추출한다. 응답 본문에 worklog 메타블록을 박지 말 것 (사용자 시야에 노출되어 가독성 저해).
 "@ | Write-Output
 } catch {
     [Console]::Error.WriteLine("[userpromptsubmit-rules] $($_.Exception.Message)")

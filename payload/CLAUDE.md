@@ -43,34 +43,35 @@
 - 테스트: 작은 수정은 생략 / 새 함수·복잡 로직·버그 수정은 단위 테스트 자동 / API·DB 경계 변경은 통합 테스트 검토.
 - 커밋 메시지: **Conventional Commits** + 한국어 제목 50자 이내. 사용자 컨펌 없이 자동 commit 금지.
 
-## 작업 로그 (Stop hook + 메타블록)
+## 작업 로그 (Stop hook 자동 추출)
 
 이 로그는 **대화 내용(Q/A)이 아니라 그 턴에 수행한 행위/작업**을 기록한다. 변경된 파일과 작업 의도를 추적하기 위함.
 
-**매 응답의 마지막에 다음 한 줄을 반드시 추가**한다. HTML 주석이라 사용자 화면엔 안 보이지만 Claude Code 의 transcript 에는 남아 hook 이 파싱한다.
+**Stop hook 이 transcript 에서 전부 자동 추출**한다. 응답 본문에 worklog 메타블록을 박지 말 것 — 사용자 화면에 노출되어 가독성을 해친다.
 
-```
-<!--worklog: action=<수행한 작업 한 줄> | files=<+/M/- path, ... 또는 -> | notes=<선택, 의사결정·왜>-->
-```
+자동 추출 규칙 (`hooks/stop-worklog.ps1`):
 
-- `action`: **무엇을 했는가** 한 줄 (예: "hooks 3종 작성 — Stop/PreToolUse/UserPromptSubmit")
-- `files`: `+`  생성, `M`  수정, `-`  삭제 — 변경 없으면 `files=-`
-- `notes`: 선택 — 결정 사항, 의도, 트레이드오프 등이 있을 때만
+- `files` ← 그 턴의 도구 호출 (`Write`/`Edit`/`MultiEdit`/`NotebookEdit`) 의 `file_path` (`+` 생성, `M` 수정)
+- `action` ← 어시스턴트 응답의 첫 의미 문장 (마크다운 헤더·코드블록·표·구분선 제외, 140자 컷)
+- `notes` ← 그 턴 사용자 메시지의 첫 문장 (요청 의도 힌트)
+- 도구 호출이 한 번도 없는 응답(조회·답변만)은 **기록 안 함**
 
-Stop hook 이 이 메타블록을 추출해 `<project>/.claude/work-log/YYYY-MM-DD.md` 에 append. 메타블록의 `files` 가 비었으면 hook 이 도구 호출에서 자동 추출. 변경이 전혀 없는 응답(조회·답변만)은 로그에 남지 않는다.
+기록 위치: `<project>/.claude/work-log/YYYY-MM-DD.md` 에 append.
 
-기록 형식 (자동):
+기록 형식:
 
 ```md
 ## HH:MM
-- 작업: hooks 3종 작성 — Stop/PreToolUse/UserPromptSubmit
+- 작업: <어시스턴트 응답 첫 의미 문장>
 - 변경:
   - +  payload/hooks/stop-worklog.ps1
   - M  payload/CLAUDE.md
-- 비고: 메타블록 사양 추가  (← notes 있을 때만)
+- 비고: 요청: <사용자 메시지 첫 문장>
 ```
 
-민감 정보(API 키, credential, .env 내용)는 메타블록·로그 양쪽 모두 기록 금지. hook 이 알려진 토큰 패턴을 redact 하지만 사전에 넣지 않는 것이 원칙.
+민감 정보(API 키, credential, .env 내용)는 로그에 기록 금지. hook 이 알려진 토큰 패턴을 redact 하지만 사전에 넣지 않는 것이 원칙.
+
+(과거 호환) 메타블록 `<!--worklog: action=... | files=... | notes=...-->` 이 응답에 포함되어 있으면 그것을 우선 사용한다. 일반적으로는 박지 않는다.
 
 ## 메모리 파일
 

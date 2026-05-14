@@ -1,6 +1,10 @@
 {
   "language": "korean",
   "theme": "auto",
+  "cleanupPeriodDays": 365000,
+  "enabledPlugins": {
+    "skill-creator@claude-plugins-official": true
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -10,9 +14,25 @@
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{USERPROFILE}}/.claude/hooks/sessionstart-version-check.ps1"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{USERPROFILE}}/.claude/hooks/session-handoff.ps1 -Mode SessionStart"
+          }
+        ]
       }
     ],
     "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -WindowStyle Hidden -Command \"(New-Object -ComObject WScript.Shell).Popup('Claude task completed!', 2, 'Claude Code', 64)\""
+          }
+        ]
+      },
       {
         "hooks": [
           {
@@ -39,6 +59,14 @@
           {
             "type": "command",
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{USERPROFILE}}/.claude/hooks/userpromptsubmit-rules.ps1"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{USERPROFILE}}/.claude/hooks/session-handoff.ps1 -Mode UserPrompt"
           }
         ]
       }

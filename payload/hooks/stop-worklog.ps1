@@ -1,4 +1,4 @@
-﻿# Stop hook — work-log 자동 기록
+# Stop hook — work-log 자동 기록
 #
 # Claude Code 가 응답 한 턴을 마칠 때 호출된다.
 # stdin: { session_id, transcript_path, cwd, stop_hook_active, ... }
@@ -8,9 +8,13 @@
 # 동작:
 #  1. transcript 의 최근 assistant turn 들을 모두 모음
 #     (Claude Code 는 한 응답을 여러 turn 으로 split — 각 turn 이 하나의 content block)
-#  2. 모든 텍스트 합쳐서 가장 마지막 worklog 메타블록 추출
-#  3. 메타블록 없으면 도구 호출에서 변경 파일 자동 추출 (fallback)
-#  4. <cwd>/.claude/work-log/YYYY-MM-DD.md 에 append
+#  2. 모든 텍스트 합쳐서 worklog 메타블록 추출 (있으면 우선 사용 — 하위 호환)
+#  3. 메타블록 없으면 자동 추출:
+#       - files: 도구 호출(Write/Edit/MultiEdit/NotebookEdit)의 file_path
+#       - action: 어시스턴트 응답의 첫 의미 문장 (제목·코드블록·표 제외)
+#       - notes: 가장 최근 사용자 메시지의 첫 문장 (작업 의도 힌트)
+#  4. 도구 호출도 없고 메타블록도 없으면 — 조회·답변만이라 skip (로그 미기록)
+#  5. <cwd>/.claude/work-log/YYYY-MM-DD.md 에 append
 #
 # 실패해도 Claude 동작에 영향이 없도록 모든 예외는 삼킨다 (exit 0).
 
@@ -35,12 +39,22 @@ try {
     if (-not $lines) { exit 0 }
 
     # 모든 assistant turn 의 text 합치기 + tool_use 의 변경 파일 수집
+    # + 가장 최근 user 메시지의 첫 문장도 (notes 자동 추출용)
     $allText     = New-Object System.Text.StringBuilder
     $editedFiles = New-Object System.Collections.ArrayList
+    $lastUserText = $null
     foreach ($l in $lines) {
         if ([string]::IsNullOrWhiteSpace($l)) { continue }
         try {
             $m = $l | ConvertFrom-Json
+            if ($m.type -eq 'user' -and $m.message -and $m.message.content) {
+                foreach ($c in $m.message.content) {
+                    if ($c.type -eq 'text' -and $c.text) { $lastUserText = $c.text }
+                    elseif (-not $c.type -and $c -is [string]) { $lastUserText = [string]$c }
+                }
+                if (-not $lastUserText -and $m.message.content -is [string]) { $lastUserText = [string]$m.message.content }
+                continue
+            }
             if ($m.type -ne 'assistant') { continue }
             if (-not $m.message -or -not $m.message.content) { continue }
             foreach ($c in $m.message.content) {
@@ -83,11 +97,50 @@ try {
         $Files = ($tail) -join ', '
     }
 
-    # action 도 메타블록도 없고 변경 파일도 없으면 skip
+    # 도구 호출 한 번도 없고 메타블록도 없으면 조회·답변 — 로그 미기록
     if (-not $Action -and -not $Files) { exit 0 }
 
+    # action 자동 추출: 어시스턴트 응답의 첫 의미 문장
+    # (heading/code fence/table delimiter/HTML comment/빈 줄 건너뜀, 마크다운 강조 제거, 140자 컷)
     if (-not $Action) {
-        $Action = "(action 누락) — 자동 추출 파일 $((($Files -split ',') | Measure-Object).Count)개"
+        $candidate = $null
+        $inFence = $false
+        foreach ($line in ($assistantText -split "`r?`n")) {
+            $t = $line.Trim()
+            if (-not $t) { continue }
+            if ($t -match '^```') { $inFence = -not $inFence; continue }
+            if ($inFence) { continue }
+            if ($t -match '^#{1,6}\s') { continue }            # 마크다운 헤더
+            if ($t -match '^\|') { continue }                  # 표
+            if ($t -match '^[-=*_]{3,}$') { continue }         # 구분선
+            if ($t -match '^<!--') { continue }                # HTML 주석
+            if ($t -match '^>\s') { continue }                 # 인용
+            $candidate = $t; break
+        }
+        if ($candidate) {
+            # 마크다운 강조·인라인 코드 제거
+            $candidate = $candidate -replace '\*\*([^*]+)\*\*', '$1'
+            $candidate = $candidate -replace '\*([^*]+)\*', '$1'
+            $candidate = $candidate -replace '`([^`]+)`', '$1'
+            $candidate = $candidate -replace '\[([^\]]+)\]\([^)]+\)', '$1'
+            if ($candidate.Length -gt 140) { $candidate = $candidate.Substring(0, 140) + '…' }
+            $Action = $candidate
+        } else {
+            $Action = "(자동 추출 — 파일 $((($Files -split ',') | Measure-Object).Count)개 변경)"
+        }
+    }
+
+    # notes 자동 추출: 가장 최근 user 메시지의 첫 문장 (작업 의도 힌트)
+    if (-not $Notes -and $lastUserText) {
+        $first = ($lastUserText -split "`r?`n" | Where-Object { $_.Trim() })[0]
+        if ($first) {
+            $first = $first.Trim()
+            # system reminder / hook 출력은 제외
+            if ($first -notmatch '^\[harness rules' -and $first -notmatch '^<system-reminder>') {
+                if ($first.Length -gt 120) { $first = $first.Substring(0, 120) + '…' }
+                $Notes = "요청: $first"
+            }
+        }
     }
 
     # 민감 정보 redact
@@ -104,15 +157,53 @@ try {
         if ($Files  -and ($Files  -match $p)) { $Files  = '[redacted by guard]' }
     }
 
-    # 파일 append
-    $logDir = Join-Path $cwd '.claude\work-log'
-    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
-    $logFile = Join-Path $logDir ("$(Get-Date -Format 'yyyy-MM-dd').md")
+    # 파일 append — 글로벌 work-log
+    #   anchor 안: ~/.claude/work-log/<anchor 기준 상대경로>/YYYY-MM-DD.md
+    #   anchor 밖: ~/.claude/work-log/_etc/YYYY-MM-DD_<cwd-tail>.md
+    #              (cwd-tail = cwd 마지막 2 segments, 파일명만 봐도 작업 위치 식별 가능)
+    $AnchorRoots = @('D:\Aleatorik')
+    $globalRoot = Join-Path $HOME '.claude\work-log'
+    $cwdNorm = $cwd.TrimEnd('\','/')
+    $isAnchor = $false
+    $relSeg = $null
+    foreach ($anc in $AnchorRoots) {
+        $ancFull = $null
+        try { $ancFull = (Resolve-Path -LiteralPath $anc -ErrorAction Stop).Path.TrimEnd('\','/') } catch {}
+        if (-not $ancFull) { continue }
+        if ($cwdNorm.ToLower().StartsWith($ancFull.ToLower())) {
+            $rel = $cwdNorm.Substring($ancFull.Length).TrimStart('\','/')
+            if (-not $rel) { $rel = '_root' }
+            $relSeg = $rel
+            $isAnchor = $true
+            break
+        }
+    }
+    $today = Get-Date -Format 'yyyy-MM-dd'
+    if ($isAnchor) {
+        $logDir  = Join-Path $globalRoot $relSeg
+        $logFile = Join-Path $logDir "$today.md"
+    } else {
+        $segs = $cwdNorm.Split([char[]]@('\','/')) | Where-Object { $_ }
+        if ($segs.Count -ge 2) {
+            $tail = ($segs[-2..-1] -join '-')
+        } elseif ($segs.Count -eq 1) {
+            $tail = $segs[0]
+        } else {
+            $tail = 'root'
+        }
+        $tail = ($tail -replace '[^A-Za-z0-9._-]', '_')
+        $logDir  = Join-Path $globalRoot '_etc'
+        $logFile = Join-Path $logDir "${today}_${tail}.md"
+    }
+    if (-not (Test-Path -LiteralPath $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
     $ts      = Get-Date -Format 'HH:mm'
 
     $out = New-Object System.Collections.ArrayList
     [void]$out.Add("## $ts")
     [void]$out.Add("- 작업: $Action")
+    if (-not $isAnchor) {
+        [void]$out.Add("- cwd: $cwdNorm")
+    }
     if ($Files) {
         [void]$out.Add('- 변경:')
         foreach ($f in ($Files -split ',')) {
