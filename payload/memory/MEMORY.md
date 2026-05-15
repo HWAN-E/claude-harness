@@ -10,6 +10,7 @@
 - [work_log_policy.md](work_log_policy.md) — Stop hook 으로 자동 기록되는 작업 로그 사양
 - [work_style.md](work_style.md) — 자율성/사전확인/롤백 정책 (행동 가드레일)
 - [coding_style.md](coding_style.md) — 주석/테스트/커밋 메시지 규칙
+- [feedback_session_handoff.md](feedback_session_handoff.md) — 종료 신호 시 HANDOFF 자동 작성 + 세션 인계 절차
 
 ## Project
 <!-- 진행 중인 작업, 기한, 의사결정의 배경 -->

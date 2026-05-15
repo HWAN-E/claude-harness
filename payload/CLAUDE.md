@@ -82,5 +82,6 @@
 - `memory/work_style.md` — 자율성/안전 정책 상세
 - `memory/work_log_policy.md` — 작업 로그 사양
 - `memory/coding_style.md` — 주석/테스트/커밋 규칙
+- `memory/feedback_session_handoff.md` — 종료 신호 시 HANDOFF 자동 작성 절차
 
 CLAUDE.md 의 규칙과 메모리 파일이 충돌하면 **메모리 파일이 더 상세한 사양**으로 본다.
